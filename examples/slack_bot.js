@@ -70,6 +70,11 @@ if (!process.env.token) {
 }
 
 var Botkit = require('../lib/Botkit.js');
+var cron = require('../node_modules/cron/lib/cron.js');
+var xlsx = require('../node_modules/xlsx/xlsx.js');
+var utils = xlsx.utils;
+require('../node_modules/date-utils');
+
 var os = require('os');
 
 var controller = Botkit.slackbot({
@@ -243,3 +248,72 @@ function formatUptime(uptime) {
     uptime = uptime + ' ' + unit;
     return uptime;
 }
+
+controller.hears(['今月の勤務時間は？'],
+	'direct_message,direct_mention,mention', function (bot, message) {
+	let http = require('http');
+	const URL = 'http://localhost/bot/json.php';
+
+	http.get(URL, (res) => {
+	  let body = '';
+	  res.setEncoding('utf8');
+	  res.on('data', (chunk) => {
+		  body += chunk;
+	  });
+
+	  res.on('end', (res) => {
+		  res = JSON.parse(body);
+		  bot.reply(message,res[0].total_time_kadou);
+	  });
+	}).on('error', (e) => {
+	  bot.reply(message, 'エラーしてるけど5');
+	});
+
+});
+
+
+
+controller.spawn({
+    token : process.env.token
+}).startRTM((err, bot, payload) => {
+
+		new cron.CronJob({
+			cronTime: '00 50 8 * * 1-6',
+			onTick: () => {
+				var book = xlsx.readFile("examples/server.xlsx")
+				var worksheet = book.Sheets["Sheet1"];
+				var data = xlsx.utils.sheet_to_json(worksheet);
+				var nowdate = new Date();
+				var format = nowdate.toFormat("M/DD/YY");
+				console.log(format);
+
+				var matchData = data.filter(function(item, index){
+				  if (item.date == format) return true;
+				});
+
+				var message = "おはようございます。\n今日の当番は下記の通りです。\n\n";
+				if(matchData[0].morinig__speech != null){
+					message += "朝礼当番は" + matchData[0].morinig__speech + "。\n";
+				}
+				if(matchData[0].post_speech != null){
+					message += "主任・係長スピーチは" + matchData[0].post_speech + "。\n"
+				}
+				if(matchData[0].clean != null){
+					message += "掃除当番は" + matchData[0].clean + "。\n";
+				}
+				message += "サーバ室点検は" + matchData[0].server + "。\n\n";
+				message += "本日もよろしくお願いいたします。";
+				
+				
+				if(matchData[0].server != null){
+					bot.say({
+						channel: 's-bot-test',
+						text: message
+					});
+				}
+			},
+			start: true,
+			timeZone: 'Asia/Tokyo'
+		});
+	
+});
